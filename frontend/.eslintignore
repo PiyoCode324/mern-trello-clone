@@ -1,3 +1,4 @@
+# frontend/.eslintignore
 postcss.config.js
 postcss.config.mjs
 tailwind.config.js

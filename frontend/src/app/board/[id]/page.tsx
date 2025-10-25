@@ -8,7 +8,15 @@ import {
   Droppable,
   Draggable,
   DropResult,
-} from "react-beautiful-dnd";
+} from "@hello-pangea/dnd";
+import { auth } from "@/lib/firebase";
+
+interface Board {
+  _id: string;
+  title: string;
+  createdBy: string;
+  createdAt: string;
+}
 
 interface List {
   _id: string;
@@ -27,11 +35,12 @@ interface Card {
 
 export default function BoardPage() {
   const params = useParams();
-  // URLにIDがなくてもデフォルト値を設定
   const boardId = Array.isArray(params.id)
     ? params.id[0]
     : params.id || "default-board";
 
+  const [user, setUser] = useState(auth.currentUser);
+  const [board, setBoard] = useState<Board | null>(null);
   const [lists, setLists] = useState<List[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [newListTitle, setNewListTitle] = useState("");
@@ -39,60 +48,142 @@ export default function BoardPage() {
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
 
-  // モックデータで動作確認
+  // Firebase Auth 状態監視
   useEffect(() => {
-    const mockLists: List[] = [
-      { _id: "list1", title: "Todo", position: 0, boardId },
-      { _id: "list2", title: "In Progress", position: 1, boardId },
-      { _id: "list3", title: "Done", position: 2, boardId },
-    ];
-    const mockCards: Card[] = [
-      { _id: "card1", title: "タスクA", listId: "list1", position: 0 },
-      { _id: "card2", title: "タスクB", listId: "list1", position: 1 },
-      { _id: "card3", title: "タスクC", listId: "list2", position: 0 },
-    ];
+    const unsubscribe = auth.onAuthStateChanged((u) => setUser(u));
+    return () => unsubscribe();
+  }, []);
 
-    setLists(mockLists);
-    setCards(mockCards);
-  }, [boardId]);
+  // ボードデータ取得
+  useEffect(() => {
+    if (!user) return;
 
-  const handleAddList = () => {
+    const fetchBoardData = async () => {
+      try {
+        console.log("Fetching board:", boardId);
+
+        // ボード
+        const boardRes = await fetch(
+          `http://localhost:5000/api/boards/${boardId}`
+        );
+        if (!boardRes.ok)
+          throw new Error(`Board fetch failed: ${boardRes.status}`);
+        const boardData: Board = await boardRes.json();
+        setBoard(boardData);
+
+        // リスト
+        const listsRes = await fetch(
+          `http://localhost:5000/api/lists?boardId=${boardId}`
+        );
+        if (!listsRes.ok)
+          throw new Error(`Lists fetch failed: ${listsRes.status}`);
+        const listsData: List[] | any = await listsRes.json();
+        if (!Array.isArray(listsData)) {
+          console.error("Lists API did not return an array:", listsData);
+          setLists([]);
+        } else {
+          setLists(listsData.sort((a, b) => a.position - b.position));
+        }
+
+        // カード
+        const cardsRes = await fetch(
+          `http://localhost:5000/api/cards?boardId=${boardId}`
+        );
+        if (!cardsRes.ok)
+          throw new Error(`Cards fetch failed: ${cardsRes.status}`);
+        const cardsData: Card[] | any = await cardsRes.json();
+        if (!Array.isArray(cardsData)) {
+          console.error("Cards API did not return an array:", cardsData);
+          setCards([]);
+        } else {
+          setCards(cardsData.sort((a, b) => a.position - b.position));
+        }
+      } catch (error) {
+        console.error("Fetch error:", error);
+      }
+    };
+
+    fetchBoardData();
+  }, [boardId, user]);
+
+  // リスト追加
+  const handleAddList = async () => {
     if (!newListTitle) return;
-    const newList: List = {
-      _id: `list${lists.length + 1}`,
-      title: newListTitle,
-      position: lists.length,
-      boardId,
-    };
-    setLists([...lists, newList]);
-    setNewListTitle("");
+    try {
+      const res = await fetch("http://localhost:5000/api/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newListTitle,
+          boardId,
+          position: lists.length,
+        }),
+      });
+      const newList = await res.json();
+      setLists([...lists, newList]);
+      setNewListTitle("");
+    } catch (error) {
+      console.error(error);
+    }
   };
 
-  const handleAddCard = () => {
+  // カード追加
+  const handleAddCard = async () => {
     if (!newCardTitle || !selectedListId) return;
-    const newCard: Card = {
-      _id: `card${cards.length + 1}`,
-      title: newCardTitle,
-      listId: selectedListId,
-      position: cards.filter((c) => c.listId === selectedListId).length,
-    };
-    setCards([...cards, newCard]);
-    setNewCardTitle("");
-    setSelectedListId(null);
+    try {
+      const res = await fetch("http://localhost:5000/api/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newCardTitle,
+          listId: selectedListId,
+          position: cards.filter((c) => c.listId === selectedListId).length,
+        }),
+      });
+      const newCard = await res.json();
+      setCards([...cards, newCard]);
+      setNewCardTitle("");
+      setSelectedListId(null);
+    } catch (error) {
+      console.error(error);
+    }
   };
 
-  const handleDeleteCard = (cardId: string) => {
-    setCards(cards.filter((c) => c._id !== cardId));
-    setEditingCard(null);
-  };
-
-  const handleEditCard = () => {
+  // カード編集
+  const handleEditCard = async () => {
     if (!editingCard) return;
-    setCards(cards.map((c) => (c._id === editingCard._id ? editingCard : c)));
-    setEditingCard(null);
+    try {
+      const res = await fetch(
+        `http://localhost:5000/api/cards/${editingCard._id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(editingCard),
+        }
+      );
+      const updatedCard = await res.json();
+      setCards(cards.map((c) => (c._id === updatedCard._id ? updatedCard : c)));
+      setEditingCard(null);
+    } catch (error) {
+      console.error(error);
+    }
   };
 
-  const onDragEnd = (result: DropResult) => {
+  // カード削除
+  const handleDeleteCard = async (cardId: string) => {
+    try {
+      await fetch(`http://localhost:5000/api/cards/${cardId}`, {
+        method: "DELETE",
+      });
+      setCards(cards.filter((c) => c._id !== cardId));
+      setEditingCard(null);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  // ドラッグ＆ドロップ
+  const onDragEnd = async (result: DropResult) => {
     const { destination, draggableId } = result;
     if (!destination) return;
 
@@ -110,11 +201,24 @@ export default function BoardPage() {
       filtered.push(updatedCard);
       return filtered;
     });
+
+    try {
+      await fetch(`http://localhost:5000/api/cards/${draggableId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedCard),
+      });
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   return (
     <div className="p-6 min-h-screen bg-gray-100">
-      <h1 className="text-3xl font-bold mb-4">Board: {boardId}</h1>
+      <h1 className="text-3xl font-bold mb-4">
+        {board ? board.title : "Loading..."}
+      </h1>
+
       <div className="flex gap-4 overflow-x-auto">
         <DragDropContext onDragEnd={onDragEnd}>
           {lists.map((list) => (
@@ -160,6 +264,8 @@ export default function BoardPage() {
                       setNewCardTitle(e.target.value);
                     }}
                     className="border p-1 rounded w-full mb-1"
+                    spellCheck={false}
+                    data-ms-editor={undefined}
                   />
                   <button
                     onClick={handleAddCard}
@@ -179,6 +285,8 @@ export default function BoardPage() {
               value={newListTitle}
               onChange={(e) => setNewListTitle(e.target.value)}
               className="border p-2 rounded w-full mb-2"
+              spellCheck={false}
+              data-ms-editor={undefined}
             />
             <button
               onClick={handleAddList}
@@ -201,6 +309,8 @@ export default function BoardPage() {
                 setEditingCard({ ...editingCard, title: e.target.value })
               }
               className="border p-2 rounded w-full mb-2"
+              spellCheck={false}
+              data-ms-editor={undefined}
             />
             <textarea
               value={editingCard.description || ""}
@@ -208,6 +318,8 @@ export default function BoardPage() {
                 setEditingCard({ ...editingCard, description: e.target.value })
               }
               className="border p-2 rounded w-full mb-2"
+              spellCheck={false}
+              data-ms-editor={undefined}
             />
             <div className="flex gap-2">
               <button
