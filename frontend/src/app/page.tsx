@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth, logout } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 interface Board {
@@ -21,7 +21,7 @@ export default function HomePage() {
   const [newBoardTitle, setNewBoardTitle] = useState("");
   const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
 
-  // ログイン状態の保持
+  // ログイン状態の監視
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
@@ -32,9 +32,9 @@ export default function HomePage() {
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [router]);
 
-  // ボード一覧取得（自分のUIDで絞り込み）
+  // ボード一覧取得
   const fetchBoards = async (uid: string) => {
     try {
       const res = await fetch("http://localhost:5000/api/boards");
@@ -47,7 +47,7 @@ export default function HomePage() {
         )
       );
     } catch (error) {
-      console.error(error);
+      console.error("Failed to fetch boards:", error);
     }
   };
 
@@ -65,7 +65,7 @@ export default function HomePage() {
       setNewBoardTitle("");
       setIsModalOpen(false);
     } catch (error) {
-      console.error(error);
+      console.error("Failed to create board:", error);
     }
   };
 
@@ -78,7 +78,7 @@ export default function HomePage() {
       setBoards(boards.filter((b) => b._id !== board._id));
       setBoardToDelete(null);
     } catch (error) {
-      console.error(error);
+      console.error("Failed to delete board:", error);
     }
   };
 
@@ -121,19 +121,26 @@ export default function HomePage() {
           {boards.map((board) => (
             <div
               key={board._id}
-              className="relative p-6 bg-white rounded-lg shadow hover:shadow-md cursor-pointer transition"
+              className="relative p-6 bg-white rounded-lg shadow hover:shadow-lg hover:-translate-y-1 transition-transform duration-200 cursor-pointer group"
+              onClick={(e) => {
+                // 削除ボタン以外をクリックした場合のみ遷移
+                const target = e.target as HTMLElement;
+                if (!target.closest("button")) {
+                  router.push(`/board/${board._id}`);
+                }
+              }}
             >
-              <h3
-                className="font-medium text-gray-800"
-                onClick={() => router.push(`/board/${board._id}`)}
-              >
+              <h3 className="font-medium text-gray-800 group-hover:text-blue-600 transition-colors">
                 {board.title}
               </h3>
 
               {/* 削除ボタン */}
               <button
-                onClick={() => setBoardToDelete(board)}
-                className="absolute top-2 right-2 text-red-500 font-bold"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setBoardToDelete(board);
+                }}
+                className="absolute top-2 right-2 text-gray-400 hover:text-red-600 transition-colors font-bold"
               >
                 ✕
               </button>
@@ -150,12 +157,11 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ボード作成モーダル */}
+      {/* Create Board Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white p-6 rounded shadow w-96">
             <h2 className="text-xl font-bold mb-4">Create New Board</h2>
-
             <input
               type="text"
               placeholder="ボード名を入力"
@@ -163,7 +169,6 @@ export default function HomePage() {
               onChange={(e) => setNewBoardTitle(e.target.value)}
               className="border p-2 rounded w-full mb-4"
             />
-
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -182,7 +187,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ボード削除確認モーダル */}
+      {/* Delete Board Confirmation Modal */}
       {boardToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white p-6 rounded shadow w-96">

@@ -68,4 +68,23 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// 🔄 PATCH: カードの並び替え or 移動
+router.patch("/reorder", async (req, res) => {
+  try {
+    const { reorderedCards } = req.body; // [{_id, listId, position}, ...]
+    const bulkOps = reorderedCards.map((card: any) => ({
+      updateOne: {
+        filter: { _id: card._id },
+        update: { listId: card.listId, position: card.position },
+      },
+    }));
+
+    await Card.bulkWrite(bulkOps);
+    res.json({ message: "Cards reordered successfully" });
+  } catch (error) {
+    console.error("Error reordering cards:", error);
+    res.status(500).json({ message: "Error reordering cards", error });
+  }
+});
+
 export default router;

@@ -56,4 +56,23 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// 🔄 PATCH: リストの並び替え (position 更新)
+router.patch("/reorder", async (req, res) => {
+  try {
+    const { reorderedLists } = req.body; // [{_id, position}, ...]
+    const bulkOps = reorderedLists.map((list: any) => ({
+      updateOne: {
+        filter: { _id: list._id },
+        update: { position: list.position },
+      },
+    }));
+
+    await List.bulkWrite(bulkOps);
+    res.json({ message: "Lists reordered successfully" });
+  } catch (error) {
+    console.error("Error reordering lists:", error);
+    res.status(500).json({ message: "Error reordering lists", error });
+  }
+});
+
 export default router;

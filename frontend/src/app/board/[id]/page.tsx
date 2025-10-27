@@ -49,13 +49,11 @@ export default function BoardPage() {
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [editingList, setEditingList] = useState<List | null>(null);
 
-  // Firebase Auth 状態監視
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((u) => setUser(u));
     return () => unsubscribe();
   }, []);
 
-  // ボードデータ取得
   useEffect(() => {
     if (!user) return;
 
@@ -67,13 +65,13 @@ export default function BoardPage() {
           fetch(`http://localhost:5000/api/cards?boardId=${boardId}`),
         ]);
 
-        const boardData: Board = await boardRes.json();
-        const listsData: List[] = await listsRes.json();
-        const cardsData: Card[] = await cardsRes.json();
+        const boardData = await boardRes.json();
+        const listsData = await listsRes.json();
+        const cardsData = await cardsRes.json();
 
         setBoard(boardData);
-        setLists(listsData.sort((a, b) => a.position - b.position));
-        setCards(cardsData.sort((a, b) => a.position - b.position));
+        setLists(listsData.sort((a: List, b: List) => a.position - b.position));
+        setCards(cardsData.sort((a: Card, b: Card) => a.position - b.position));
       } catch (error) {
         console.error("Fetch error:", error);
       }
@@ -82,9 +80,8 @@ export default function BoardPage() {
     fetchBoardData();
   }, [boardId, user]);
 
-  // リスト追加
   const handleAddList = async () => {
-    if (!newListTitle) return;
+    if (!newListTitle.trim()) return;
     try {
       const res = await fetch("http://localhost:5000/api/lists", {
         method: "POST",
@@ -103,7 +100,6 @@ export default function BoardPage() {
     }
   };
 
-  // リスト編集
   const handleEditList = async () => {
     if (!editingList) return;
     try {
@@ -123,23 +119,20 @@ export default function BoardPage() {
     }
   };
 
-  // リスト削除
   const handleDeleteList = async (listId: string) => {
     try {
       await fetch(`http://localhost:5000/api/lists/${listId}`, {
         method: "DELETE",
       });
       setLists(lists.filter((l) => l._id !== listId));
-      setCards(cards.filter((c) => c.listId !== listId)); // リスト内カードも削除
-      setEditingList(null);
+      setCards(cards.filter((c) => c.listId !== listId));
     } catch (error) {
       console.error(error);
     }
   };
 
-  // カード追加
   const handleAddCard = async () => {
-    if (!newCardTitle || !selectedListId) return;
+    if (!newCardTitle.trim() || !selectedListId) return;
     try {
       const res = await fetch("http://localhost:5000/api/cards", {
         method: "POST",
@@ -159,7 +152,6 @@ export default function BoardPage() {
     }
   };
 
-  // カード編集
   const handleEditCard = async () => {
     if (!editingCard) return;
     try {
@@ -179,151 +171,211 @@ export default function BoardPage() {
     }
   };
 
-  // カード削除
   const handleDeleteCard = async (cardId: string) => {
     try {
       await fetch(`http://localhost:5000/api/cards/${cardId}`, {
         method: "DELETE",
       });
       setCards(cards.filter((c) => c._id !== cardId));
-      setEditingCard(null);
     } catch (error) {
       console.error(error);
     }
   };
 
-  // ドラッグ＆ドロップ
   const onDragEnd = async (result: DropResult) => {
-    const { destination, draggableId } = result;
+    const { destination, source, draggableId, type } = result;
     if (!destination) return;
 
-    const card = cards.find((c) => c._id === draggableId);
-    if (!card) return;
+    if (type === "list") {
+      const newLists = Array.from(lists);
+      const [movedList] = newLists.splice(source.index, 1);
+      newLists.splice(destination.index, 0, movedList);
+      setLists(newLists.map((l, i) => ({ ...l, position: i })));
 
-    const updatedCard = {
-      ...card,
-      listId: destination.droppableId,
-      position: destination.index,
-    };
+      const reorderedLists = newLists.map((l, i) => ({
+        _id: l._id,
+        position: i,
+      }));
 
-    setCards((prev) => {
-      const filtered = prev.filter((c) => c._id !== draggableId);
-      filtered.push(updatedCard);
-      return filtered;
+      try {
+        await fetch(`http://localhost:5000/api/lists/reorder`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reorderedLists }),
+        });
+      } catch (err) {
+        console.error("List reorder failed:", err);
+      }
+      return;
+    }
+
+    setCards((prevCards) => {
+      const draggedCard = prevCards.find((c) => c._id === draggableId);
+      if (!draggedCard) return prevCards;
+
+      let newCards = prevCards.filter((c) => c._id !== draggableId);
+      const destListCards = newCards
+        .filter((c) => c.listId === destination.droppableId)
+        .sort((a, b) => a.position - b.position);
+
+      const updatedCard = { ...draggedCard, listId: destination.droppableId };
+      destListCards.splice(destination.index, 0, updatedCard);
+
+      const updatedDestListCards = destListCards.map((c, index) => ({
+        ...c,
+        position: index,
+      }));
+
+      const otherCards = newCards.filter(
+        (c) => c.listId !== destination.droppableId
+      );
+
+      return [...otherCards, ...updatedDestListCards];
     });
 
     try {
-      await fetch(`http://localhost:5000/api/cards/${draggableId}`, {
-        method: "PUT",
+      const reorderedCards = cards.map((c) => ({
+        _id: c._id,
+        listId: c.listId,
+        position: c.position,
+      }));
+      await fetch(`http://localhost:5000/api/cards/reorder`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedCard),
+        body: JSON.stringify({ reorderedCards }),
       });
     } catch (error) {
-      console.error(error);
+      console.error("Card reorder failed:", error);
     }
   };
 
   return (
-    <div className="p-6 min-h-screen bg-gray-100">
-      <h1 className="text-3xl font-bold mb-4">
+    <div className="p-6 min-h-screen bg-neutral-100">
+      <h1 className="text-3xl font-bold mb-6">
         {board ? board.title : "Loading..."}
       </h1>
 
-      <div className="flex gap-4 overflow-x-auto">
-        <DragDropContext onDragEnd={onDragEnd}>
-          {lists.map((list) => (
-            <Droppable key={list._id} droppableId={list._id}>
-              {(provided) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  className="bg-white p-4 rounded shadow w-64 flex-shrink-0"
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="all-lists" direction="horizontal" type="list">
+          {(provided) => (
+            <div
+              className="flex gap-4 overflow-x-auto"
+              {...provided.droppableProps}
+              ref={provided.innerRef}
+            >
+              {lists.map((list, listIndex) => (
+                <Draggable
+                  key={list._id}
+                  draggableId={list._id}
+                  index={listIndex}
                 >
-                  <div className="flex justify-between items-center mb-2">
-                    <h2
-                      className="font-bold cursor-pointer"
-                      onClick={() => setEditingList(list)}
+                  {(provided) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
+                      {...provided.dragHandleProps}
+                      className="bg-white p-4 rounded-2xl shadow w-64 flex-shrink-0"
                     >
-                      {list.title}
-                    </h2>
-                    <button
-                      onClick={() => handleDeleteList(list._id)}
-                      className="text-red-500 text-sm"
-                    >
-                      ✕
-                    </button>
-                  </div>
+                      <div className="flex justify-between items-center mb-2">
+                        <h2
+                          className="font-bold cursor-pointer"
+                          onClick={() => setEditingList(list)}
+                        >
+                          {list.title}
+                        </h2>
+                        <button
+                          onClick={() => handleDeleteList(list._id)}
+                          className="text-red-500 text-sm"
+                        >
+                          ✕
+                        </button>
+                      </div>
 
-                  {cards
-                    .filter((c) => c.listId === list._id)
-                    .sort((a, b) => a.position - b.position)
-                    .map((card, index) => (
-                      <Draggable
-                        key={card._id}
-                        draggableId={card._id}
-                        index={index}
-                      >
+                      <Droppable droppableId={list._id} type="card">
                         {(provided) => (
                           <div
                             ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className="bg-gray-50 p-2 rounded mb-2 shadow cursor-pointer"
-                            onClick={() => setEditingCard(card)}
+                            {...provided.droppableProps}
+                            className="space-y-2 min-h-[20px]"
                           >
-                            {card.title}
+                            {cards
+                              .filter((c) => c.listId === list._id)
+                              .sort((a, b) => a.position - b.position)
+                              .map((card, cardIndex) => (
+                                <Draggable
+                                  key={card._id}
+                                  draggableId={card._id}
+                                  index={cardIndex}
+                                >
+                                  {(provided) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.draggableProps}
+                                      {...provided.dragHandleProps}
+                                      className="bg-gray-50 p-2 rounded-md shadow-sm hover:bg-gray-100 cursor-grab active:cursor-grabbing"
+                                      onClick={() => setEditingCard(card)}
+                                    >
+                                      {card.title}
+                                    </div>
+                                  )}
+                                </Draggable>
+                              ))}
+                            {provided.placeholder}
                           </div>
                         )}
-                      </Draggable>
-                    ))}
-                  {provided.placeholder}
+                      </Droppable>
 
-                  <input
-                    type="text"
-                    placeholder="カード追加"
-                    value={selectedListId === list._id ? newCardTitle : ""}
-                    onChange={(e) => {
-                      setSelectedListId(list._id);
-                      setNewCardTitle(e.target.value);
-                    }}
-                    className="border p-1 rounded w-full mb-1"
-                  />
-                  <button
-                    onClick={handleAddCard}
-                    className="bg-blue-500 text-white px-2 py-1 rounded w-full"
-                  >
-                    Add Card
-                  </button>
-                </div>
-              )}
-            </Droppable>
-          ))}
+                      <input
+                        type="text"
+                        spellCheck={false}
+                        placeholder="カードを追加"
+                        value={selectedListId === list._id ? newCardTitle : ""}
+                        onChange={(e) => {
+                          setSelectedListId(list._id);
+                          setNewCardTitle(e.target.value);
+                        }}
+                        className="border p-1 rounded w-full mb-1 text-sm"
+                      />
+                      <button
+                        onClick={handleAddCard}
+                        className="bg-blue-500 text-white text-sm px-2 py-1 rounded w-full"
+                      >
+                        Add Card
+                      </button>
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
 
-          <div className="bg-white p-4 rounded shadow w-64 flex-shrink-0">
-            <input
-              type="text"
-              placeholder="新しいリスト"
-              value={newListTitle}
-              onChange={(e) => setNewListTitle(e.target.value)}
-              className="border p-2 rounded w-full mb-2"
-            />
-            <button
-              onClick={handleAddList}
-              className="bg-green-500 text-white px-4 py-2 rounded w-full"
-            >
-              Add List
-            </button>
-          </div>
-        </DragDropContext>
-      </div>
+              <div className="bg-white p-4 rounded-lg shadow w-64 flex-shrink-0">
+                <input
+                  type="text"
+                  spellCheck={false}
+                  placeholder="新しいリスト名"
+                  value={newListTitle}
+                  onChange={(e) => setNewListTitle(e.target.value)}
+                  className="border p-2 rounded w-full mb-2 text-sm"
+                />
+                <button
+                  onClick={handleAddList}
+                  className="bg-green-500 text-white text-sm px-4 py-2 rounded w-full"
+                >
+                  Add List
+                </button>
+              </div>
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
 
-      {/* カード編集モーダル */}
       {editingCard && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
           <div className="bg-white p-4 rounded shadow w-96">
             <h3 className="text-xl font-bold mb-2">Edit Card</h3>
             <input
               type="text"
+              spellCheck={false}
               value={editingCard.title}
               onChange={(e) =>
                 setEditingCard({ ...editingCard, title: e.target.value })
@@ -361,13 +413,13 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* リスト編集モーダル */}
       {editingList && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
           <div className="bg-white p-4 rounded shadow w-96">
             <h3 className="text-xl font-bold mb-2">Edit List</h3>
             <input
               type="text"
+              spellCheck={false}
               value={editingList.title}
               onChange={(e) =>
                 setEditingList({ ...editingList, title: e.target.value })
