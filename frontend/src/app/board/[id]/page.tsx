@@ -47,6 +47,7 @@ export default function BoardPage() {
   const [newCardTitle, setNewCardTitle] = useState("");
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
+  const [editingList, setEditingList] = useState<List | null>(null);
 
   // Firebase Auth 状態監視
   useEffect(() => {
@@ -60,44 +61,19 @@ export default function BoardPage() {
 
     const fetchBoardData = async () => {
       try {
-        console.log("Fetching board:", boardId);
+        const [boardRes, listsRes, cardsRes] = await Promise.all([
+          fetch(`http://localhost:5000/api/boards/${boardId}`),
+          fetch(`http://localhost:5000/api/lists?boardId=${boardId}`),
+          fetch(`http://localhost:5000/api/cards?boardId=${boardId}`),
+        ]);
 
-        // ボード
-        const boardRes = await fetch(
-          `http://localhost:5000/api/boards/${boardId}`
-        );
-        if (!boardRes.ok)
-          throw new Error(`Board fetch failed: ${boardRes.status}`);
         const boardData: Board = await boardRes.json();
+        const listsData: List[] = await listsRes.json();
+        const cardsData: Card[] = await cardsRes.json();
+
         setBoard(boardData);
-
-        // リスト
-        const listsRes = await fetch(
-          `http://localhost:5000/api/lists?boardId=${boardId}`
-        );
-        if (!listsRes.ok)
-          throw new Error(`Lists fetch failed: ${listsRes.status}`);
-        const listsData: List[] | any = await listsRes.json();
-        if (!Array.isArray(listsData)) {
-          console.error("Lists API did not return an array:", listsData);
-          setLists([]);
-        } else {
-          setLists(listsData.sort((a, b) => a.position - b.position));
-        }
-
-        // カード
-        const cardsRes = await fetch(
-          `http://localhost:5000/api/cards?boardId=${boardId}`
-        );
-        if (!cardsRes.ok)
-          throw new Error(`Cards fetch failed: ${cardsRes.status}`);
-        const cardsData: Card[] | any = await cardsRes.json();
-        if (!Array.isArray(cardsData)) {
-          console.error("Cards API did not return an array:", cardsData);
-          setCards([]);
-        } else {
-          setCards(cardsData.sort((a, b) => a.position - b.position));
-        }
+        setLists(listsData.sort((a, b) => a.position - b.position));
+        setCards(cardsData.sort((a, b) => a.position - b.position));
       } catch (error) {
         console.error("Fetch error:", error);
       }
@@ -122,6 +98,40 @@ export default function BoardPage() {
       const newList = await res.json();
       setLists([...lists, newList]);
       setNewListTitle("");
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  // リスト編集
+  const handleEditList = async () => {
+    if (!editingList) return;
+    try {
+      const res = await fetch(
+        `http://localhost:5000/api/lists/${editingList._id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(editingList),
+        }
+      );
+      const updatedList = await res.json();
+      setLists(lists.map((l) => (l._id === updatedList._id ? updatedList : l)));
+      setEditingList(null);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  // リスト削除
+  const handleDeleteList = async (listId: string) => {
+    try {
+      await fetch(`http://localhost:5000/api/lists/${listId}`, {
+        method: "DELETE",
+      });
+      setLists(lists.filter((l) => l._id !== listId));
+      setCards(cards.filter((c) => c.listId !== listId)); // リスト内カードも削除
+      setEditingList(null);
     } catch (error) {
       console.error(error);
     }
@@ -229,7 +239,20 @@ export default function BoardPage() {
                   {...provided.droppableProps}
                   className="bg-white p-4 rounded shadow w-64 flex-shrink-0"
                 >
-                  <h2 className="font-bold mb-2">{list.title}</h2>
+                  <div className="flex justify-between items-center mb-2">
+                    <h2
+                      className="font-bold cursor-pointer"
+                      onClick={() => setEditingList(list)}
+                    >
+                      {list.title}
+                    </h2>
+                    <button
+                      onClick={() => handleDeleteList(list._id)}
+                      className="text-red-500 text-sm"
+                    >
+                      ✕
+                    </button>
+                  </div>
 
                   {cards
                     .filter((c) => c.listId === list._id)
@@ -264,8 +287,6 @@ export default function BoardPage() {
                       setNewCardTitle(e.target.value);
                     }}
                     className="border p-1 rounded w-full mb-1"
-                    spellCheck={false}
-                    data-ms-editor={undefined}
                   />
                   <button
                     onClick={handleAddCard}
@@ -285,8 +306,6 @@ export default function BoardPage() {
               value={newListTitle}
               onChange={(e) => setNewListTitle(e.target.value)}
               className="border p-2 rounded w-full mb-2"
-              spellCheck={false}
-              data-ms-editor={undefined}
             />
             <button
               onClick={handleAddList}
@@ -298,6 +317,7 @@ export default function BoardPage() {
         </DragDropContext>
       </div>
 
+      {/* カード編集モーダル */}
       {editingCard && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
           <div className="bg-white p-4 rounded shadow w-96">
@@ -309,8 +329,6 @@ export default function BoardPage() {
                 setEditingCard({ ...editingCard, title: e.target.value })
               }
               className="border p-2 rounded w-full mb-2"
-              spellCheck={false}
-              data-ms-editor={undefined}
             />
             <textarea
               value={editingCard.description || ""}
@@ -318,8 +336,6 @@ export default function BoardPage() {
                 setEditingCard({ ...editingCard, description: e.target.value })
               }
               className="border p-2 rounded w-full mb-2"
-              spellCheck={false}
-              data-ms-editor={undefined}
             />
             <div className="flex gap-2">
               <button
@@ -336,6 +352,43 @@ export default function BoardPage() {
               </button>
               <button
                 onClick={() => setEditingCard(null)}
+                className="bg-gray-300 px-4 py-2 rounded flex-1"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* リスト編集モーダル */}
+      {editingList && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
+          <div className="bg-white p-4 rounded shadow w-96">
+            <h3 className="text-xl font-bold mb-2">Edit List</h3>
+            <input
+              type="text"
+              value={editingList.title}
+              onChange={(e) =>
+                setEditingList({ ...editingList, title: e.target.value })
+              }
+              className="border p-2 rounded w-full mb-2"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleEditList}
+                className="bg-blue-500 text-white px-4 py-2 rounded flex-1"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => handleDeleteList(editingList._id)}
+                className="bg-red-500 text-white px-4 py-2 rounded flex-1"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setEditingList(null)}
                 className="bg-gray-300 px-4 py-2 rounded flex-1"
               >
                 Cancel

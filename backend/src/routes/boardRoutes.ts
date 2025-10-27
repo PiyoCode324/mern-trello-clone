@@ -37,4 +37,34 @@ router.post("/", async (req, res) => {
   }
 });
 
+// ✏️ PUT: ボードを更新
+router.put("/:id", async (req, res) => {
+  try {
+    const updatedBoard = await Board.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      {
+        new: true,
+      }
+    );
+    if (!updatedBoard)
+      return res.status(404).json({ message: "Board not found" });
+    res.json(updatedBoard);
+  } catch (error) {
+    res.status(500).json({ message: "Error updating board", error });
+  }
+});
+
+// ❌ DELETE: ボードを削除
+router.delete("/:id", async (req, res) => {
+  try {
+    const deletedBoard = await Board.findByIdAndDelete(req.params.id);
+    if (!deletedBoard)
+      return res.status(404).json({ message: "Board not found" });
+    res.json({ message: "Board deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting board", error });
+  }
+});
+
 export default router;

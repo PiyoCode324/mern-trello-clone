@@ -30,4 +30,30 @@ router.post("/", async (req, res) => {
   }
 });
 
+// ✏️ PUT: リストを更新
+router.put("/:id", async (req, res) => {
+  try {
+    const updatedList = await List.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+    });
+    if (!updatedList)
+      return res.status(404).json({ message: "List not found" });
+    res.json(updatedList);
+  } catch (error) {
+    res.status(500).json({ message: "Error updating list", error });
+  }
+});
+
+// ❌ DELETE: リストを削除
+router.delete("/:id", async (req, res) => {
+  try {
+    const deletedList = await List.findByIdAndDelete(req.params.id);
+    if (!deletedList)
+      return res.status(404).json({ message: "List not found" });
+    res.json({ message: "List deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting list", error });
+  }
+});
+
 export default router;

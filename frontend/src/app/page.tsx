@@ -1,9 +1,9 @@
-﻿// frontend/src/app/layout.tsx
+﻿// frontend/src/app/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth, logout } from "@/lib/firebase"; // logout 関数を firebase.ts に作る
+import { auth, logout } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 interface Board {
@@ -19,6 +19,7 @@ export default function HomePage() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newBoardTitle, setNewBoardTitle] = useState("");
+  const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
 
   // ログイン状態の保持
   useEffect(() => {
@@ -38,7 +39,6 @@ export default function HomePage() {
     try {
       const res = await fetch("http://localhost:5000/api/boards");
       const data: Board[] = await res.json();
-      // 自分のボードだけ取得
       const myBoards = data.filter((b) => b.createdBy === uid);
       setBoards(
         myBoards.sort(
@@ -64,6 +64,19 @@ export default function HomePage() {
       setBoards([newBoard, ...boards]);
       setNewBoardTitle("");
       setIsModalOpen(false);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  // ボード削除
+  const handleDeleteBoard = async (board: Board) => {
+    try {
+      await fetch(`http://localhost:5000/api/boards/${board._id}`, {
+        method: "DELETE",
+      });
+      setBoards(boards.filter((b) => b._id !== board._id));
+      setBoardToDelete(null);
     } catch (error) {
       console.error(error);
     }
@@ -101,25 +114,29 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Starred Boards (ダミー表示) */}
-      <section className="mb-10">
-        <h2 className="text-xl font-semibold mb-3">Starred Boards</h2>
-        <p className="text-gray-500 text-sm">
-          お気に入りのボードがここに表示されます。
-        </p>
-      </section>
-
-      {/* My Boards セクション */}
+      {/* My Boards */}
       <section className="mb-10">
         <h2 className="text-xl font-semibold mb-3">My Boards</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
           {boards.map((board) => (
             <div
               key={board._id}
-              onClick={() => router.push(`/board/${board._id}`)}
-              className="p-6 bg-white rounded-lg shadow hover:shadow-md cursor-pointer transition"
+              className="relative p-6 bg-white rounded-lg shadow hover:shadow-md cursor-pointer transition"
             >
-              <h3 className="font-medium text-gray-800">{board.title}</h3>
+              <h3
+                className="font-medium text-gray-800"
+                onClick={() => router.push(`/board/${board._id}`)}
+              >
+                {board.title}
+              </h3>
+
+              {/* 削除ボタン */}
+              <button
+                onClick={() => setBoardToDelete(board)}
+                className="absolute top-2 right-2 text-red-500 font-bold"
+              >
+                ✕
+              </button>
             </div>
           ))}
 
@@ -133,7 +150,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* モーダル */}
+      {/* ボード作成モーダル */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white p-6 rounded shadow w-96">
@@ -159,6 +176,35 @@ export default function HomePage() {
                 className="px-4 py-2 rounded bg-green-500 hover:bg-green-600 text-white"
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ボード削除確認モーダル */}
+      {boardToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white p-6 rounded shadow w-96">
+            <h2 className="text-xl font-bold mb-4">
+              Delete Board "{boardToDelete.title}"?
+            </h2>
+            <p className="mb-4 text-gray-600">
+              このボードを削除すると、リストやカードもすべて削除されます。
+              本当に削除しますか？
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setBoardToDelete(null)}
+                className="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteBoard(boardToDelete)}
+                className="px-4 py-2 rounded bg-red-500 hover:bg-red-600 text-white"
+              >
+                Delete
               </button>
             </div>
           </div>
