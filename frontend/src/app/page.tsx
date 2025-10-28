@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { api } from "@/lib/api";
 
 interface Board {
   _id: string;
@@ -37,8 +38,7 @@ export default function HomePage() {
   // ボード一覧取得
   const fetchBoards = async (uid: string) => {
     try {
-      const res = await fetch("http://localhost:5000/api/boards");
-      const data: Board[] = await res.json();
+      const data: Board[] = await api.getBoards(); // 一覧取得用に api 関数調整が必要
       const myBoards = data.filter((b) => b.createdBy === uid);
       setBoards(
         myBoards.sort(
@@ -55,12 +55,10 @@ export default function HomePage() {
   const handleCreateBoard = async () => {
     if (!newBoardTitle.trim() || !user) return;
     try {
-      const res = await fetch("http://localhost:5000/api/boards", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newBoardTitle, createdBy: user.uid }),
+      const newBoard = await api.createBoard({
+        title: newBoardTitle,
+        createdBy: user.uid,
       });
-      const newBoard = await res.json();
       setBoards([newBoard, ...boards]);
       setNewBoardTitle("");
       setIsModalOpen(false);
@@ -72,9 +70,7 @@ export default function HomePage() {
   // ボード削除
   const handleDeleteBoard = async (board: Board) => {
     try {
-      await fetch(`http://localhost:5000/api/boards/${board._id}`, {
-        method: "DELETE",
-      });
+      await api.deleteBoard(board._id);
       setBoards(boards.filter((b) => b._id !== board._id));
       setBoardToDelete(null);
     } catch (error) {
@@ -123,7 +119,6 @@ export default function HomePage() {
               key={board._id}
               className="relative p-6 bg-white rounded-lg shadow hover:shadow-lg hover:-translate-y-1 transition-transform duration-200 cursor-pointer group"
               onClick={(e) => {
-                // 削除ボタン以外をクリックした場合のみ遷移
                 const target = e.target as HTMLElement;
                 if (!target.closest("button")) {
                   router.push(`/board/${board._id}`);
@@ -133,8 +128,6 @@ export default function HomePage() {
               <h3 className="font-medium text-gray-800 group-hover:text-blue-600 transition-colors">
                 {board.title}
               </h3>
-
-              {/* 削除ボタン */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -146,8 +139,6 @@ export default function HomePage() {
               </button>
             </div>
           ))}
-
-          {/* Create New Board */}
           <button
             onClick={() => setIsModalOpen(true)}
             className="p-6 bg-gray-200 rounded-lg hover:bg-gray-300 flex items-center justify-center text-gray-600 font-medium transition"
