@@ -182,26 +182,29 @@ export default function BoardPage() {
     }
   };
 
+  // ✅ 改良版: ドラッグ&ドロップ
   const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId, type } = result;
     if (!destination) return;
 
+    // リストの並び替え
     if (type === "list") {
       const newLists = Array.from(lists);
       const [movedList] = newLists.splice(source.index, 1);
       newLists.splice(destination.index, 0, movedList);
-      setLists(newLists.map((l, i) => ({ ...l, position: i })));
-
-      const reorderedLists = newLists.map((l, i) => ({
-        _id: l._id,
-        position: i,
-      }));
+      const reorderedLists = newLists.map((l, i) => ({ ...l, position: i }));
+      setLists(reorderedLists);
 
       try {
         await fetch(`http://localhost:5000/api/lists/reorder`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reorderedLists }),
+          body: JSON.stringify({
+            reorderedLists: reorderedLists.map(({ _id, position }) => ({
+              _id,
+              position,
+            })),
+          }),
         });
       } catch (err) {
         console.error("List reorder failed:", err);
@@ -209,40 +212,49 @@ export default function BoardPage() {
       return;
     }
 
-    setCards((prevCards) => {
-      const draggedCard = prevCards.find((c) => c._id === draggableId);
-      if (!draggedCard) return prevCards;
+    // カードの並び替え・移動
+    const draggedCard = cards.find((c) => c._id === draggableId);
+    if (!draggedCard) return;
 
-      let newCards = prevCards.filter((c) => c._id !== draggableId);
-      const destListCards = newCards
-        .filter((c) => c.listId === destination.droppableId)
-        .sort((a, b) => a.position - b.position);
+    const updatedCards = Array.from(cards);
+    const sourceListCards = updatedCards
+      .filter((c) => c.listId === source.droppableId)
+      .sort((a, b) => a.position - b.position);
+    const destListCards = updatedCards
+      .filter((c) => c.listId === destination.droppableId)
+      .sort((a, b) => a.position - b.position);
 
-      const updatedCard = { ...draggedCard, listId: destination.droppableId };
-      destListCards.splice(destination.index, 0, updatedCard);
+    const [movedCard] = sourceListCards.splice(source.index, 1);
+    movedCard.listId = destination.droppableId;
+    destListCards.splice(destination.index, 0, movedCard);
 
-      const updatedDestListCards = destListCards.map((c, index) => ({
-        ...c,
-        position: index,
-      }));
+    const reorderedSource = sourceListCards.map((c, i) => ({
+      ...c,
+      position: i,
+    }));
+    const reorderedDest = destListCards.map((c, i) => ({
+      ...c,
+      position: i,
+    }));
 
-      const otherCards = newCards.filter(
-        (c) => c.listId !== destination.droppableId
-      );
-
-      return [...otherCards, ...updatedDestListCards];
+    const finalCards = updatedCards.map((c) => {
+      const s = reorderedSource.find((x) => x._id === c._id);
+      const d = reorderedDest.find((x) => x._id === c._id);
+      return s || d || c;
     });
 
+    setCards(finalCards);
+
+    // 変更のあったカードだけを送信
+    const changedCards = [...reorderedSource, ...reorderedDest].map(
+      ({ _id, listId, position }) => ({ _id, listId, position })
+    );
+
     try {
-      const reorderedCards = cards.map((c) => ({
-        _id: c._id,
-        listId: c.listId,
-        position: c.position,
-      }));
       await fetch(`http://localhost:5000/api/cards/reorder`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reorderedCards }),
+        body: JSON.stringify({ reorderedCards: changedCards }),
       });
     } catch (error) {
       console.error("Card reorder failed:", error);
@@ -369,6 +381,7 @@ export default function BoardPage() {
         </Droppable>
       </DragDropContext>
 
+      {/* ✅ 編集モーダル群 */}
       {editingCard && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
           <div className="bg-white p-4 rounded shadow w-96">
