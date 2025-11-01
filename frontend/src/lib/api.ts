@@ -1,7 +1,8 @@
 // frontend/src/lib/api.ts
 import { auth } from "@/lib/firebase";
 
-const BASE_URL = "http://localhost:5000/api";
+// 環境変数を利用
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const token = await auth.currentUser?.getIdToken();
